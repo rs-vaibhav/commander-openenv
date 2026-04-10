@@ -34,12 +34,7 @@ class IncidentCommanderEnv(Environment[SREAction, SREObservation, SREState]):
             self.task_name = options["task_name"]
 
         obs = self._get_obs()
-        info = {
-            "sla": self.global_sla, 
-            "score": float(self.score()),         
-            "success": bool(self.score() >= 0.5)  
-        }
-        return obs, info
+        return obs
 
     def _get_obs(self) -> SREObservation:
         return SREObservation(
