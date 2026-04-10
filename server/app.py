@@ -10,9 +10,9 @@ from models import SREAction, SREObservation
 
 # Create the FastMCP/OpenAPI app directly via OpenEnv handler
 app = create_app(
-    entry_point=IncidentCommanderEnv,
-    action_type=SREAction,
-    observation_type=SREObservation,
+    IncidentCommanderEnv,
+    SREAction,
+    SREObservation,
     env_name="commander_env"
 )
 
