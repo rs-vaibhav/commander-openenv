@@ -1,28 +1,18 @@
-import numpy as np
-from gymnasium import spaces
 from openenv.core import Environment
+from models import SREObservation, SREAction, SREState
 
-class IncidentCommanderEnv(Environment):
+class IncidentCommanderEnv(Environment[SREAction, SREObservation, SREState]):
     def __init__(self):
         super().__init__()
         
-        # 1. Action Space (The SRE Toolkit)
-        # 0: Observe (Do nothing)
-        # 1: Restart API Gateway
-        # 2: Rollback Auth Service
-        # 3: Scale Up Database
-        # 4: Clear Redis Cache
-        self.action_space = spaces.Discrete(5)
-        
-        # 2. Observation Space (Server Telemetry)
-        # [API_CPU, API_Lat, Auth_CPU, Auth_Err, DB_CPU, DB_Lat, Global_SLA]
-        self.observation_space = spaces.Box(
-            low=0.0, high=10000.0, shape=(7,), dtype=np.float32
-        )
-        
         self.max_steps = 15
         self.task_name = "hard-cascading-failure"
-        
+        self._state_dict = {}
+        self.current_step = 0
+        self.global_sla = 100.0
+        self.incident_resolved = False
+        self.downtime_penalty_accumulated = 0.0
+
         self.reset()
 
     def reset(self, seed=None, options=None):
@@ -30,7 +20,7 @@ class IncidentCommanderEnv(Environment):
         self.current_step = 0
         
         # Initial Healthy State
-        self.state = {
+        self._state_dict = {
             "api_cpu": 30.0, "api_lat": 45.0, 
             "auth_cpu": 25.0, "auth_err": 0.1,
             "db_cpu": 40.0, "db_lat": 10.0
@@ -40,6 +30,9 @@ class IncidentCommanderEnv(Environment):
         self.incident_resolved = False
         self.downtime_penalty_accumulated = 0.0
 
+        if options and "task_name" in options:
+            self.task_name = options["task_name"]
+
         obs = self._get_obs()
         info = {
             "sla": self.global_sla, 
@@ -48,17 +41,26 @@ class IncidentCommanderEnv(Environment):
         }
         return obs, info
 
-    def _get_obs(self):
-        return np.array([
-            self.state["api_cpu"], self.state["api_lat"],
-            self.state["auth_cpu"], self.state["auth_err"],
-            self.state["db_cpu"], self.state["db_lat"],
-            self.global_sla
-        ], dtype=np.float32)
+    def _get_obs(self) -> SREObservation:
+        return SREObservation(
+            api_cpu=self._state_dict["api_cpu"],
+            api_lat=self._state_dict["api_lat"],
+            auth_cpu=self._state_dict["auth_cpu"],
+            auth_err=self._state_dict["auth_err"],
+            db_cpu=self._state_dict["db_cpu"],
+            db_lat=self._state_dict["db_lat"],
+            global_sla=self.global_sla
+        )
     
-    def state(self):
+    def state(self) -> SREState:
         """Mandatory method required by the OpenEnv Environment base class."""
-        return self._get_obs()
+        return SREState(
+            observation=self._get_obs(),
+            current_step=self.current_step,
+            incident_resolved=self.incident_resolved,
+            task_name=self.task_name,
+            downtime_penalty_accumulated=self.downtime_penalty_accumulated
+        )
 
     def score(self) -> float:
         """Official Grader: Returns SLA survival score strictly between (0, 1)."""
@@ -79,7 +81,7 @@ class IncidentCommanderEnv(Environment):
         else:
             if self.global_sla < 85.0:
                 return 0.01 # System Crashed
-            if self.state["db_cpu"] >= 99.0 or self.state["api_lat"] > 2000.0:
+            if self._state_dict["db_cpu"] >= 99.0 or self._state_dict["api_lat"] > 2000.0:
                 return 0.10 # Left the system burning
             elif self.incident_resolved:
                 return 0.99 # Perfect fix
@@ -88,48 +90,48 @@ class IncidentCommanderEnv(Environment):
                 raw_score = ((self.global_sla - 85.0) / 15.0) * 0.6 + 0.2
                 return min(0.99, max(0.01, float(raw_score)))
 
-    def step(self, action):
+    def step(self, action_request: SREAction):
+        action = action_request.action
         reward = 0.0
         
         # --- THE CHAOS ENGINE (Task-Based Incidents) ---
         if self.task_name == "medium-auth-spike" and self.current_step == 3:
             # Bad code push at step 3!
-            self.state["auth_err"] = 85.0
-            self.state["api_lat"] = 1500.0
+            self._state_dict["auth_err"] = 85.0
+            self._state_dict["api_lat"] = 1500.0
             
         elif self.task_name == "hard-cascading-failure" and self.current_step == 4:
             # Huge traffic spike hits the DB
-            self.state["db_cpu"] = 99.9
-            self.state["db_lat"] = 5000.0
-            self.state["api_lat"] = 3000.0 # Cascades to API
+            self._state_dict["db_cpu"] = 99.9
+            self._state_dict["db_lat"] = 5000.0
+            self._state_dict["api_lat"] = 3000.0 # Cascades to API
 
         # --- ACTION HANDLER ---
         if action == 1: # Restart API
-            self.state["api_lat"] = 45.0
-            self.state["api_cpu"] = 30.0
+            self._state_dict["api_lat"] = 45.0
+            self._state_dict["api_cpu"] = 30.0
         elif action == 2: # Rollback Auth
-            if self.state["auth_err"] > 10.0:
-                self.state["auth_err"] = 0.1
-                self.state["api_lat"] = 50.0 # Clears the queue
+            if self._state_dict["auth_err"] > 10.0:
+                self._state_dict["auth_err"] = 0.1
+                self._state_dict["api_lat"] = 50.0 # Clears the queue
                 self.incident_resolved = True
                 reward += 5.0 # Positive reinforcement for the right fix
         elif action == 3: # Scale DB
-            if self.state["db_cpu"] > 90.0:
-                self.state["db_cpu"] = 40.0
-                self.state["db_lat"] = 10.0
+            if self._state_dict["db_cpu"] > 90.0:
+                self._state_dict["db_cpu"] = 40.0
+                self._state_dict["db_lat"] = 10.0
                 self.incident_resolved = True
                 reward += 5.0
 
         # --- SLA TRACKER & PHYSICS ---
         # If any system is burning, SLA drops linearly
-        is_burning = self.state["auth_err"] > 10.0 or self.state["db_cpu"] > 90.0 or self.state["api_lat"] > 1000.0
+        is_burning = self._state_dict["auth_err"] > 10.0 or self._state_dict["db_cpu"] > 90.0 or self._state_dict["api_lat"] > 1000.0
         if is_burning:
             self.global_sla -= 2.5
             reward -= 1.0 # Bleed reward while broken
 
         self.current_step += 1
-        terminated = self.current_step >= self.max_steps
-        truncated = False
+        done = bool(self.current_step >= self.max_steps)
 
         info = {
             "sla": self.global_sla, 
@@ -137,4 +139,5 @@ class IncidentCommanderEnv(Environment):
             "success": bool(self.score() >= 0.5)
         }
 
-        return self._get_obs(), float(reward), terminated, truncated, info
+        # OpenEnv expects 4 elements: obs, reward, done, info
+        return self._get_obs(), float(reward), done, info
