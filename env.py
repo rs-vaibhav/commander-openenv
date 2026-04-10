@@ -55,6 +55,10 @@ class IncidentCommanderEnv(Environment):
             self.state["db_cpu"], self.state["db_lat"],
             self.global_sla
         ], dtype=np.float32)
+    
+    def state(self):
+        """Mandatory method required by the OpenEnv Environment base class."""
+        return self._get_obs()
 
     def score(self) -> float:
         """Official Grader: Returns SLA survival score strictly between (0, 1)."""
