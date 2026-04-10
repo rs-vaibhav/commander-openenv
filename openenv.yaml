@@ -1,0 +1,24 @@
+version: "1.0"
+project:
+  name: "SRE Incident Commander"
+  description: "A DevOps microservice simulator testing an LLM's ability to diagnose cascading server failures."
+
+benchmark:
+  id: "SRE-IncidentCommander"
+  name: "3 AM Incident Commander"
+
+tasks:
+  - id: "easy-api-compliance"
+    name: "Easy: System Monitoring"
+    description: "Agent connects to the environment and observes healthy telemetry without causing downtime."
+    max_steps: 5
+
+  - id: "medium-auth-spike"
+    name: "Medium: Single Service Failure"
+    description: "Agent must diagnose an authentication error spike and rollback the specific service to restore the SLA."
+    max_steps: 10
+
+  - id: "hard-cascading-failure"
+    name: "Hard: Cascading DB Outage"
+    description: "Agent faces a cascading failure where DB CPU spikes crash the API. Agent must triage and fix the root cause before the Global SLA drops below 85%."
+    max_steps: 15
