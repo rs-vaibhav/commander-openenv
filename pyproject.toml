@@ -12,3 +12,5 @@ dependencies = [
     "openai>=1.14.0",
     "openenv-core>=0.1.0"
 ]
+[project.scripts]
+server = "server.app:main"
